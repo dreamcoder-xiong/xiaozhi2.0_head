@@ -125,7 +125,7 @@ void ui_title_screen_init(void)
     lv_label_set_text(ui_title_timestate, "");
     lv_obj_set_style_text_color(ui_title_timestate, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(ui_title_timestate, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(ui_title_timestate, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_title_timestate, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_title_batterytxt = lv_label_create(ui_title_page);
     lv_obj_set_width(ui_title_batterytxt, LV_SIZE_CONTENT);  /// 1

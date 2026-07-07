@@ -92,6 +92,7 @@ public:
     void PlaySound(const std::string_view& sound);
     bool CanEnterSleepMode();
     void ResetDecoder();
+    void HandleVisionCommand(const std::string& question);
 
 private:
     Application();
@@ -113,6 +114,7 @@ private:
     bool keep_listening_ = false;
     bool aborted_ = false;
     bool voice_detected_ = false;
+    bool vision_mode_ = false;  // 视觉流程中屏蔽云端消息，避免对话割裂
     int clock_ticks_ = 0;
 
     // Audio encode / decode
