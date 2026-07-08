@@ -45,7 +45,13 @@ std::string Thing::GetStateJson() {
 }
 
 void Thing::Invoke(const cJSON* command) {
+    // P0修复: NULL检查, 防止 method 字段缺失 → 崩溃
     auto method_name = cJSON_GetObjectItem(command, "method");
+    if (method_name == NULL || method_name->valuestring == NULL) {
+        ESP_LOGE(TAG, "IoT command missing 'method' field");
+        return;
+    }
+
     auto input_params = cJSON_GetObjectItem(command, "parameters");
 
     try {
@@ -54,6 +60,10 @@ void Thing::Invoke(const cJSON* command) {
             auto input_param = cJSON_GetObjectItem(input_params, param.name().c_str());
             if (param.required() && input_param == nullptr) {
                 throw std::runtime_error("Parameter " + param.name() + " is required");
+            }
+            // P0修复: 可选参数不存在时跳过, 防止 NULL 解引用
+            if (input_param == nullptr) {
+                continue;
             }
             if (param.type() == kValueTypeNumber) {
                 param.set_number(input_param->valueint);
@@ -64,12 +74,15 @@ void Thing::Invoke(const cJSON* command) {
             }
         }
 
-        Application::GetInstance().Schedule([&method]() {
-            method.Invoke();
-        });
+        // P0修复: 直接同步调用 method.Invoke(), 不使用 Schedule
+        // 原因: Schedule 的 lambda 捕获了栈上的局部引用变量 &method,
+        // Thing::Invoke 返回后栈帧销毁 → Schedule 延迟执行时访问悬空引用
+        // → use-after-free (UB): 命令随机丢失 / 偶尔成功 / 极端情况下崩溃
+        // UART 写入是同步且快速的 (uart_write_bytes 非阻塞), 无需异步
+        method.Invoke();
     } catch (const std::runtime_error& e) {
+        // P0修复: method_name 已在上方验证过非NULL, 此处安全
         ESP_LOGE(TAG, "Method not found: %s", method_name->valuestring);
-        return;
     }
 }
 

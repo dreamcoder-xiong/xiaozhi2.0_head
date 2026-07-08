@@ -51,13 +51,20 @@ bool ThingManager::GetStatesJson(std::string& json, bool delta) {
 }
 
 void ThingManager::Invoke(const cJSON* command) {
+    // P0修复: NULL检查, 防止 name 字段缺失 → 崩溃
     auto name = cJSON_GetObjectItem(command, "name");
+    if (name == NULL || name->valuestring == NULL) {
+        ESP_LOGE(TAG, "IoT command missing 'name' field");
+        return;
+    }
     for (auto& thing : things_) {
         if (thing->name() == name->valuestring) {
             thing->Invoke(command);
             return;
         }
     }
+    // P0修复: Thing 未匹配时打印警告日志, 便于排查服务端/固件 Thing 名不一致问题
+    ESP_LOGW(TAG, "Thing not found: %s", name->valuestring);
 }
 
 } // namespace iot

@@ -36,6 +36,12 @@ void WakeWordDetect::Initialize(int channels, bool reference) {
     int ref_num = reference_ ? 1 : 0;
 
     srmodel_list_t *models = esp_srmodel_init("model");
+    if (models == nullptr || models->num == 0) {
+        ESP_LOGE(TAG, "Failed to load SR models from 'model' partition. "
+                 "Wake word detection will be disabled.");
+        initialized_ = false;
+        return;
+    }
     for (int i = 0; i < models->num; i++) {
         ESP_LOGI(TAG, "Model %d: %s", i, models->model_name[i]);
         if (strstr(models->model_name[i], ESP_WN_PREFIX) != NULL) {
@@ -65,7 +71,21 @@ void WakeWordDetect::Initialize(int channels, bool reference) {
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
     
     afe_iface_ = esp_afe_handle_from_config(afe_config);
+    if (afe_iface_ == nullptr) {
+        ESP_LOGE(TAG, "Failed to create AFE handle. "
+                 "Wake word detection will be disabled.");
+        initialized_ = false;
+        return;
+    }
     afe_data_ = afe_iface_->create_from_config(afe_config);
+    if (afe_data_ == nullptr) {
+        ESP_LOGE(TAG, "Failed to create AFE data from config (PSRAM may be full). "
+                 "Wake word detection will be disabled.");
+        initialized_ = false;
+        return;
+    }
+
+    initialized_ = true;
 
     xTaskCreate([](void* arg) {
         auto this_ = (WakeWordDetect*)arg;
@@ -84,7 +104,9 @@ void WakeWordDetect::StartDetection() {
 
 void WakeWordDetect::StopDetection() {
     xEventGroupClearBits(event_group_, DETECTION_RUNNING_EVENT);
-    afe_iface_->reset_buffer(afe_data_);
+    if (initialized_ && afe_iface_ != nullptr && afe_data_ != nullptr) {
+        afe_iface_->reset_buffer(afe_data_);
+    }
 }
 
 bool WakeWordDetect::IsDetectionRunning() {
@@ -92,6 +114,9 @@ bool WakeWordDetect::IsDetectionRunning() {
 }
 
 void WakeWordDetect::Feed(const std::vector<int16_t>& data) {
+    if (!initialized_ || afe_iface_ == nullptr || afe_data_ == nullptr) {
+        return;
+    }
     input_buffer_.insert(input_buffer_.end(), data.begin(), data.end());
 
     auto feed_size = afe_iface_->get_feed_chunksize(afe_data_) * channels_;
@@ -102,6 +127,11 @@ void WakeWordDetect::Feed(const std::vector<int16_t>& data) {
 }
 
 void WakeWordDetect::AudioDetectionTask() {
+    if (!initialized_ || afe_iface_ == nullptr || afe_data_ == nullptr) {
+        ESP_LOGW(TAG, "AudioDetectionTask: not initialized, exiting");
+        vTaskDelete(NULL);
+        return;
+    }
     auto fetch_size = afe_iface_->get_fetch_chunksize(afe_data_);
     auto feed_size = afe_iface_->get_feed_chunksize(afe_data_);
     ESP_LOGI(TAG, "Audio detection task started, feed size: %d fetch size: %d",

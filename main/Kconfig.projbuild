@@ -233,4 +233,12 @@ config USE_WAKE_WORD_DETECT
     depends on IDF_TARGET_ESP32S3 && SPIRAM
     help
         需要 ESP32 S3 与 AFE 支持
+
+config USE_COMMAND_DETECT
+    bool "启用本地语音命令识别 (MultiNet)"
+    default y
+    depends on IDF_TARGET_ESP32S3 && SPIRAM
+    help
+        使用 MultiNet6 CN 在本地识别语音命令（前进、后退、左转、右转、停止、跳舞、灯光等）。
+        命令识别绕过云端 AI，本地直接执行，响应更快且无需联网。
 endmenu

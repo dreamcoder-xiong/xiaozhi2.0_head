@@ -35,6 +35,7 @@ private:
     const esp_afe_sr_iface_t* afe_iface_ = nullptr;
     esp_afe_sr_data_t* afe_data_ = nullptr;
     char* wakenet_model_ = NULL;
+    bool initialized_ = false;
     std::vector<std::string> wake_words_;
     std::vector<int16_t> input_buffer_;
     EventGroupHandle_t event_group_;

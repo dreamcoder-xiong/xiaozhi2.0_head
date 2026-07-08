@@ -24,6 +24,9 @@
 #if CONFIG_USE_AUDIO_PROCESSOR
 #include "audio_processor.h"
 #endif
+#if CONFIG_USE_COMMAND_DETECT
+#include "command_detect.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -103,6 +106,9 @@ private:
 #if CONFIG_USE_AUDIO_PROCESSOR
     AudioProcessor audio_processor_;
 #endif
+#if CONFIG_USE_COMMAND_DETECT
+    CommandDetect command_detect_;
+#endif
     Ota ota_;
     std::mutex mutex_;
     std::list<std::function<void()>> main_tasks_;
@@ -113,6 +119,9 @@ private:
     bool keep_listening_ = false;
     bool aborted_ = false;
     bool voice_detected_ = false;
+#if CONFIG_USE_COMMAND_DETECT
+    bool local_command_reopening_ = false;
+#endif
     int clock_ticks_ = 0;
 
     // Audio encode / decode
@@ -135,6 +144,9 @@ private:
     void CheckNewVersion();
     void ShowActivationCode();
     void OnClockTimer();
+#if CONFIG_USE_COMMAND_DETECT
+    void ExecuteChassisCommand(ChassisCommand cmd);
+#endif
 };
 
 #endif // _APPLICATION_H_

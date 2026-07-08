@@ -19,6 +19,8 @@
 #include <driver/gpio.h>
 #include <arpa/inet.h>
 #include <esp_app_desc.h>
+#include <driver/uart.h>
+#include "./boards/esp-sparkbot/config.h"
 #include "./boards/esp-sparkbot/wifi/web_server.h"
 #define TAG "Application"
 static const char *const STATE_STRINGS[] = {
@@ -438,6 +440,12 @@ void Application::Start()
                                     {
         board.SetPowerSaveMode(true);
         Schedule([this]() {
+#if CONFIG_USE_COMMAND_DETECT
+            if (local_command_reopening_) {
+                local_command_reopening_ = false;  // 由这里清除，防止后续正常关闭受影响
+                return;  // 跳过 Idle 切换，等待重建
+            }
+#endif
             auto display = Board::GetInstance().GetDisplay();
             display->SetChatMessage("system", "");
             SetDeviceState(kDeviceStateIdle);
@@ -445,9 +453,19 @@ void Application::Start()
     protocol_->OnIncomingJson([this, display](const cJSON *root)
                               {
         // Parse JSON data
+        // P0修复: NULL检查, 防止 type 字段缺失 → 崩溃
         auto type = cJSON_GetObjectItem(root, "type");
+        if (type == NULL || type->valuestring == NULL) {
+            ESP_LOGW(TAG, "Incoming JSON missing 'type' field");
+            return;
+        }
         if (strcmp(type->valuestring, "tts") == 0) {
             auto state = cJSON_GetObjectItem(root, "state");
+            // P0修复: NULL检查, 防止 state 字段缺失 → 崩溃
+            if (state == NULL || state->valuestring == NULL) {
+                ESP_LOGW(TAG, "TTS message missing 'state' field");
+                return;
+            }
             if (strcmp(state->valuestring, "start") == 0) {
                 Schedule([this]() {
                     aborted_ = false;
@@ -582,6 +600,41 @@ extern lv_obj_t * ui_face_screen;
                 SetDeviceState(kDeviceStateIdle);
             } }); });
     wake_word_detect_.StartDetection();
+#endif
+
+#if CONFIG_USE_COMMAND_DETECT
+    // 延迟初始化 MultiNet — 避免在 Start() 主线程中执行长时间模型加载
+    Schedule([this]() {
+        if (command_detect_.Initialize()) {
+            ESP_LOGI(TAG, "Command detect initialized successfully");
+            command_detect_.OnCommandDetected([this](ChassisCommand cmd) {
+                Schedule([this, cmd]() {
+                    // 1. 执行底盘命令
+                    ExecuteChassisCommand(cmd);
+                    // 2. LCD 反馈
+                    auto display = Board::GetInstance().GetDisplay();
+                    std::string feedback = "本地指令: " + command_detect_.GetLastCommandString();
+                    display->SetChatMessage("system", feedback.c_str());
+                    display->SetEmotion("happy");
+                    ESP_LOGI(TAG, "Local command executed: %s", feedback.c_str());
+                    // 3. 关闭音频通道（清除服务器端已收到的语音），再重建新通道
+                    if (protocol_ && protocol_->IsAudioChannelOpened()) {
+                        local_command_reopening_ = true;  // 阻止 OnAudioChannelClosed 切 Idle
+                        protocol_->CloseAudioChannel();
+                    }
+                    if (protocol_ && protocol_->OpenAudioChannel()) {
+                        keep_listening_ = true;
+                        protocol_->SendStartListening(kListeningModeAutoStop);
+                        SetDeviceState(kDeviceStateListening);
+                    } else {
+                        SetDeviceState(kDeviceStateIdle);
+                    }
+                });
+            });
+        } else {
+            ESP_LOGW(TAG, "Command detect initialization failed, continuing without local commands");
+        }
+    });
 #endif
 
     SetDeviceState(kDeviceStateIdle);
@@ -762,6 +815,12 @@ void Application::InputAudio()
         wake_word_detect_.Feed(data);
     }
 #endif
+#if CONFIG_USE_COMMAND_DETECT
+    if (command_detect_.IsDetectionRunning())
+    {
+        command_detect_.Feed(data);
+    }
+#endif
 #if CONFIG_USE_AUDIO_PROCESSOR
     if (audio_processor_.IsRunning())
     {
@@ -817,6 +876,9 @@ void Application::SetDeviceState(DeviceState state)
 #if CONFIG_USE_WAKE_WORD_DETECT
         wake_word_detect_.StartDetection();
 #endif
+#if CONFIG_USE_COMMAND_DETECT
+        command_detect_.StartDetection();
+#endif
         break;
     case kDeviceStateConnecting:
         display->SetStatus(Lang::Strings::CONNECTING);
@@ -835,6 +897,9 @@ void Application::SetDeviceState(DeviceState state)
 #if CONFIG_USE_WAKE_WORD_DETECT
         wake_word_detect_.StopDetection();
 #endif
+#if CONFIG_USE_COMMAND_DETECT
+        command_detect_.StartDetection();
+#endif
         UpdateIotStates();
         if (previous_state == kDeviceStateSpeaking)
         {
@@ -852,6 +917,9 @@ void Application::SetDeviceState(DeviceState state)
 #endif
 #if CONFIG_USE_WAKE_WORD_DETECT
         wake_word_detect_.StartDetection();
+#endif
+#if CONFIG_USE_COMMAND_DETECT
+        command_detect_.StopDetection();
 #endif
         break;
     default:
@@ -936,6 +1004,31 @@ bool Application::CanEnterSleepMode()
     // Now it is safe to enter sleep mode
     return true;
 }
+
+#if CONFIG_USE_COMMAND_DETECT
+void Application::ExecuteChassisCommand(ChassisCommand cmd)
+{
+    // 底盘命令 UART 映射表（与 chassis.cc 中的协议保持一致）
+    static const char* uart_payloads[] = {
+        "x0.0 y1.0",   // FORWARD: 全速前进
+        "x0.0 y-1.0",  // BACKWARD: 全速后退
+        "x-1.0 y0.0",  // TURN_LEFT: 原地左转
+        "x1.0 y0.0",   // TURN_RIGHT: 原地右转
+        "x0.0 y0.0",   // STOP: 立即停止
+        "d1",          // DANCE: 预设舞蹈（18组动作）
+        "w3", "w4", "w5", "w6", "w7", "w8"  // LIGHT_3~LIGHT_8
+    };
+
+    int idx = static_cast<int>(cmd);
+    if (idx >= 0 && idx < static_cast<int>(sizeof(uart_payloads) / sizeof(uart_payloads[0]))) {
+        const char* payload = uart_payloads[idx];
+        uart_write_bytes(ECHO_UART_PORT_NUM, payload, strlen(payload));
+        ESP_LOGI(TAG, "Chassis command sent via UART: %s", payload);
+    } else {
+        ESP_LOGW(TAG, "Invalid chassis command: %d", idx);
+    }
+}
+#endif
 
 extern "C" xz_ui_state_t app_get_xz_ui_state(void)
 {

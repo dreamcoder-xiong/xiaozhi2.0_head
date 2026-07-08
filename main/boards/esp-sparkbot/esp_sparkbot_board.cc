@@ -295,8 +295,18 @@ private:
         auto &thing_manager = iot::ThingManager::GetInstance();
         thing_manager.AddThing(iot::CreateThing("Speaker"));
         thing_manager.AddThing(iot::CreateThing("Screen"));
+        thing_manager.AddThing(iot::CreateThing("Battery"));
         thing_manager.AddThing(iot::CreateThing("Chassis"));
     }
+
+    virtual bool GetBatteryLevel(int &level, bool &charging, bool &discharging) override
+    {
+        level = get_power_value();
+        charging = false;
+        discharging = true;
+        return true;
+    }
+
     static void ui_send_event_update(void *param)
     {
         auto &app = Application::GetInstance();
