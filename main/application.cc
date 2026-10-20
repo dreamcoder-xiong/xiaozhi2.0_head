@@ -102,7 +102,11 @@ void Application::CheckNewVersion(Ota& ota) {
         retry_count = 0;
         retry_delay = 10; // 重置重试延迟时间
 
-        if (ota.HasNewVersion()) {
+        // 定制板：禁用自动 OTA 升级。
+        // 官方 OTA 固件用原版 GPIO（I2C SDA=GPIO4），本板 SDA=GPIO0，
+        // 升级后必然 I2C 全挂崩溃（摄像头/音频探测失败），造成"升级-崩溃-回滚"死循环。
+        // 保留 OTA 请求本身（服务器配置/MQTT 地址来自这个请求），只跳过固件升级。
+        if (false && ota.HasNewVersion()) {
             Alert(Lang::Strings::OTA_UPGRADE, Lang::Strings::UPGRADING, "happy", Lang::Sounds::OGG_UPGRADE);
 
             vTaskDelay(pdMS_TO_TICKS(3000));
