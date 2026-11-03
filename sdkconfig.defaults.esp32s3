@@ -22,3 +22,7 @@ CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
 
 # 板型：ESP-SparkBot（定制板，GPIO 已在 boards/esp-sparkbot/config.h 适配）
 CONFIG_BOARD_TYPE_ESP_SPARKBOT=y
+
+# ThorVG：只在 LVGL 任务内单线程渲染，关闭线程支持
+# （开启时 meson 会检测 pthread，在 xtensa 工具链下报 not found）
+# CONFIG_THORVG_THREAD_ENABLED is not set

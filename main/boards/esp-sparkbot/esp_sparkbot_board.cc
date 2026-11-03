@@ -7,6 +7,7 @@
 #include "config.h"
 #include "mcp_server.h"
 #include "settings.h"
+#include "sparkbot_idle_face.h"
 
 #include <wifi_station.h>
 #include <esp_log.h>
@@ -127,6 +128,9 @@ private:
                                         .icon_font = &font_awesome_20_4,
                                         .emoji_font = font_emoji_64_init(),
                                     });
+
+        // 待机动态表情层（Lottie/ThorVG）：idle 时显示，对话时自动隐藏
+        sparkbot_idle_face_init();
     }
 
     void InitializeCamera() {
@@ -167,10 +171,12 @@ private:
         camera_ = new Esp32Camera(camera_config);
 
         Settings settings("sparkbot", false);
-        // 考虑到部分复刻使用了不可动摄像头的设计，默认启用翻转
-        bool camera_flipped = static_cast<bool>(settings.GetInt("camera-flipped", 1));
-        camera_->SetHMirror(camera_flipped);
-        camera_->SetVFlip(camera_flipped);
+        // 定制板：镜头安装方向与官方不同。官方默认 HMirror+VFlip 同时开启（180°），
+        // 本板只需关闭 VFlip（上下颠倒），HMirror 保持开启（左右正常）。
+        bool hmirror = static_cast<bool>(settings.GetInt("camera-hmirror", 1));
+        bool vflip   = static_cast<bool>(settings.GetInt("camera-vflip", 0));
+        camera_->SetHMirror(hmirror);
+        camera_->SetVFlip(vflip);
     }
 
     /*
@@ -256,13 +262,15 @@ private:
 
         mcp_server.AddTool("self.camera.set_camera_flipped", "翻转摄像头图像方向", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
             Settings settings("sparkbot", true);
-            // 考虑到部分复刻使用了不可动摄像头的设计，默认启用翻转
-            bool flipped = !static_cast<bool>(settings.GetInt("camera-flipped", 1));
-            
-            camera_->SetHMirror(flipped);
-            camera_->SetVFlip(flipped);
-            
-            settings.SetInt("camera-flipped", flipped ? 1 : 0);
+            // 180° 翻转：水平镜像与垂直翻转同时取反
+            bool hmirror = !static_cast<bool>(settings.GetInt("camera-hmirror", 1));
+            bool vflip   = !static_cast<bool>(settings.GetInt("camera-vflip", 0));
+
+            camera_->SetHMirror(hmirror);
+            camera_->SetVFlip(vflip);
+
+            settings.SetInt("camera-hmirror", hmirror ? 1 : 0);
+            settings.SetInt("camera-vflip", vflip ? 1 : 0);
             
             return true;
         });

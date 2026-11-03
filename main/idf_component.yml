@@ -34,6 +34,7 @@ dependencies:
   espressif2022/esp_emote_gfx: ^1.0.0~2
   espressif/adc_mic: ^0.2.0
   espressif/esp_mmap_assets: '>=1.2'
+  espressif/thorvg: "0.*"
   txp666/otto-emoji-gif-component: ~1.0.2
   espressif/adc_battery_estimation: ^0.2.0
 
