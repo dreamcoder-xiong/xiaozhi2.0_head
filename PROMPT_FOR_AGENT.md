@@ -131,13 +131,13 @@ idf.py -p COMx flash monitor
 
 ## 补充：虚拟 MAC 验证（本版本新增）
 
-设备之前做过换绑，服务器绑定的是虚拟 MAC `ac:a7:04:4c:fb:19`。
+设备之前做过换绑，服务器绑定的是虚拟 MAC `ac:a7:04:xx:xx:xx`。
 本版本已移植 `components/esp_hi_rebind`，会从 NVS `rebind/mac` 读取并上报。
 
 烧录后先在日志中确认：
 
 ```
-RebindMac: Device-Id MAC: ac:a7:04:4c:fb:19 (chip: ac:a7:04:e3:bc:20)
+RebindMac: Device-Id MAC: ac:a7:04:xx:xx:xx (chip: ac:a7:04:yy:yy:yy)
 ```
 
 - 如果是 `4c:fb:19`：身份正确，继续测试视觉
