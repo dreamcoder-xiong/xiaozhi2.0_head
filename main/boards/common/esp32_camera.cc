@@ -188,6 +188,12 @@ std::string Esp32Camera::Explain(const std::string& question) {
         return "{\"success\": false, \"message\": \"Image explain URL or token is not set\"}";
     }
 
+    // 诊断：确认服务器下发的 url/token 以及拍照瞬间的可用内存
+    ESP_LOGI(TAG, "Explain start: url=%s token_len=%d free_internal=%u free_psram=%u",
+             explain_url_.c_str(), (int)explain_token_.size(),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+
     // 创建局部的 JPEG 队列, 40 entries is about to store 512 * 40 = 20480 bytes of JPEG data
     QueueHandle_t jpeg_queue = xQueueCreate(40, sizeof(JpegChunk));
     if (jpeg_queue == nullptr) {
@@ -199,14 +205,30 @@ std::string Esp32Camera::Explain(const std::string& question) {
     encoder_thread_ = std::thread([this, jpeg_queue]() {
         frame2jpg_cb(fb_, 80, [](void* arg, size_t index, const void* data, size_t len) -> unsigned int {
             auto jpeg_queue = (QueueHandle_t)arg;
-            JpegChunk chunk = {
-                .data = (uint8_t*)heap_caps_aligned_alloc(16, len, MALLOC_CAP_SPIRAM),
-                .len = len
-            };
+            if (len == 0) {
+                return 0;
+            }
+            JpegChunk chunk = {};
+            chunk.data = (uint8_t*)heap_caps_aligned_alloc(16, len, MALLOC_CAP_SPIRAM);
+            chunk.len = len;
+            if (chunk.data == nullptr) {
+                ESP_LOGE(TAG, "Failed to allocate JPEG chunk (%u bytes)", (unsigned)len);
+                return 0;
+            }
             memcpy(chunk.data, data, len);
-            xQueueSend(jpeg_queue, &chunk, portMAX_DELAY);
+            // 主线程若停止消费（连接失败/超时），丢弃该块继续编码，避免 join 死锁
+            if (xQueueSend(jpeg_queue, &chunk, pdMS_TO_TICKS(2000)) != pdPASS) {
+                ESP_LOGW(TAG, "JPEG queue full, drop chunk (%u bytes)", (unsigned)len);
+                heap_caps_free(chunk.data);
+            }
             return len;
         }, jpeg_queue);
+
+        // 显式发送结束标记，主线程据此退出接收循环
+        JpegChunk end_chunk = {};
+        end_chunk.data = nullptr;
+        end_chunk.len = 0;
+        xQueueSend(jpeg_queue, &end_chunk, pdMS_TO_TICKS(2000));
     });
 
     auto network = Board::GetInstance().GetNetwork();
@@ -224,14 +246,13 @@ std::string Esp32Camera::Explain(const std::string& question) {
     http->SetHeader("Transfer-Encoding", "chunked");
     if (!http->Open("POST", explain_url_)) {
         ESP_LOGE(TAG, "Failed to connect to explain URL");
-        // Clear the queue
+        // 编码线程已带超时，join 不会永久阻塞
         encoder_thread_.join();
+        // 非阻塞清空队列
         JpegChunk chunk;
-        while (xQueueReceive(jpeg_queue, &chunk, portMAX_DELAY) == pdPASS) {
+        while (xQueueReceive(jpeg_queue, &chunk, 0) == pdPASS) {
             if (chunk.data != nullptr) {
                 heap_caps_free(chunk.data);
-            } else {
-                break;
             }
         }
         vQueueDelete(jpeg_queue);
@@ -261,8 +282,9 @@ std::string Esp32Camera::Explain(const std::string& question) {
     size_t total_sent = 0;
     while (true) {
         JpegChunk chunk;
-        if (xQueueReceive(jpeg_queue, &chunk, portMAX_DELAY) != pdPASS) {
-            ESP_LOGE(TAG, "Failed to receive JPEG chunk");
+        // 带超时：编码线程异常退出时不会永久阻塞
+        if (xQueueReceive(jpeg_queue, &chunk, pdMS_TO_TICKS(15000)) != pdPASS) {
+            ESP_LOGE(TAG, "Timeout waiting for JPEG chunk");
             break;
         }
         if (chunk.data == nullptr) {

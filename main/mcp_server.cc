@@ -95,11 +95,20 @@ void McpServer::AddCommonTools() {
                 Property("question", kPropertyTypeString)
             }),
             [camera](const PropertyList& properties) -> ReturnValue {
+                auto display = Board::GetInstance().GetDisplay();
                 if (!camera->Capture()) {
+                    if (display != nullptr) {
+                        display->SetPreviewImage(nullptr);
+                    }
                     return "{\"success\": false, \"message\": \"Failed to capture photo\"}";
                 }
                 auto question = properties["question"].value<std::string>();
-                return camera->Explain(question);
+                auto result = camera->Explain(question);
+                // 预览图不会自动清除，显式恢复聊天气泡界面
+                if (display != nullptr) {
+                    display->SetPreviewImage(nullptr);
+                }
+                return result;
             });
     }
 
