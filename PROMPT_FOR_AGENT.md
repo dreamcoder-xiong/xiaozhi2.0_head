@@ -128,3 +128,21 @@ idf.py -p COMx flash monitor
 | 花屏/闪烁 | 烧了官方原版固件（GPIO 不匹配），需用本包源码构建 |
 | 屏幕上下颠倒 | 摄像头 VFlip 配置被改回开启 |
 | 无法连接 WiFi | NVS 被擦除，需要重新配网 |
+
+## 补充：虚拟 MAC 验证（本版本新增）
+
+设备之前做过换绑，服务器绑定的是虚拟 MAC `ac:a7:04:4c:fb:19`。
+本版本已移植 `components/esp_hi_rebind`，会从 NVS `rebind/mac` 读取并上报。
+
+烧录后先在日志中确认：
+
+```
+RebindMac: Device-Id MAC: ac:a7:04:4c:fb:19 (chip: ac:a7:04:e3:bc:20)
+```
+
+- 如果是 `4c:fb:19`：身份正确，继续测试视觉
+- 如果是 `e3:bc:20`：NVS 值丢失，**不要执行 erase-flash**，
+  先向用户报告，由用户确认后再处理 NVS 写入
+
+另外注意：新增组件后首次构建需要重新跑 CMake 配置；
+如果直接 build 找不到 `esp_hi_rebind.h`，先执行 `idf.py reconfigure`。

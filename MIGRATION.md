@@ -135,3 +135,26 @@ git reset --hard v1.8.6-sparkbot-custom-face   # 回到含动态表情版本
 ```
 
 或直接烧录 `firmware/xiaozhi_v1.8.6_custom.bin`。
+
+## 9. 虚拟 MAC（换绑身份恢复）——重要
+
+设备做过换绑，服务器控制台绑定的设备 MAC 是虚拟 MAC `ac:a7:04:4c:fb:19`。
+1.8.6 原始固件只上报物理 MAC `ac:a7:04:e3:bc:20`，会导致服务器识别为另一台设备，
+视觉配置（vision url/token）对不上。
+
+已新增 `components/esp_hi_rebind`：
+- 从 NVS `rebind/mac` 读取虚拟 MAC，作为 `SystemInfo::GetMacAddress()` 的返回值
+- 只影响上报的 Device-Id，不改变 WiFi 实际 MAC
+- NVS 无值或非法时回退芯片 MAC（不会自动生成随机 MAC）
+
+**烧录后必须检查启动日志：**
+
+```
+I (xxx) RebindMac: Device-Id MAC: ac:a7:04:4c:fb:19 (chip: ac:a7:04:e3:bc:20)
+```
+
+- 显示 `4c:fb:19` → 身份恢复正确，控制台设备应在线，视觉配置应恢复
+- 显示 `e3:bc:20` → NVS 中的 rebind/mac 已丢失，需要手动写入虚拟 MAC 后再试
+
+> 注意：如果 NVS 值丢失，不要用 `erase-flash`，也不要重新配网；
+> 需要单独把 `rebind/mac = ac:a7:04:4c:fb:19` 写入 NVS（可临时加一段 NVS 写入代码）。
