@@ -1,5 +1,5 @@
 tmp/
-components/
+# components/ 下的自定义组件需要纳入版本管理（如 esp_hi_rebind）
 managed_components/
 build/
 .vscode/

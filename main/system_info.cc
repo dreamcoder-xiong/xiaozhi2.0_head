@@ -12,6 +12,8 @@
 #include "esp_wifi_remote.h"
 #endif
 
+#include "esp_hi_rebind.h"
+
 #define TAG "SystemInfo"
 
 size_t SystemInfo::GetFlashSize() {
@@ -32,15 +34,10 @@ size_t SystemInfo::GetFreeHeapSize() {
 }
 
 std::string SystemInfo::GetMacAddress() {
-    uint8_t mac[6];
-#if CONFIG_IDF_TARGET_ESP32P4
-    esp_wifi_get_mac(WIFI_IF_STA, mac);
-#else
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-#endif
-    char mac_str[18];
-    snprintf(mac_str, sizeof(mac_str), "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    return std::string(mac_str);
+    // 委托解绑组件：优先返回 NVS 中保存的（虚拟）MAC。
+    // 设备之前做过换绑，服务器侧绑定的是虚拟 MAC；
+    // 直接上报物理 MAC 会导致服务器识别为另一台设备（视觉配置丢失）。
+    return std::string(esp_hi_rebind_get_mac());
 }
 
 std::string SystemInfo::GetChipModelName() {
